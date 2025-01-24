@@ -56,6 +56,11 @@ def get_db():
         conn.close()
 
 
+@app.get("/")
+def read_root():
+    return {"message": "Welcome to my FastAPI app!"}
+
+
 @app.post("/signup/")
 def signup(user: User, cursor=Depends(get_db)):
     hashed_password = hash_password(user.password)
