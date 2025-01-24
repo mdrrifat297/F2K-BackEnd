@@ -12,7 +12,7 @@ pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
 # CORS Middleware setup
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["http://localhost:8000"],  # Update with your allowed domain
+    allow_origins=["https://f2k-backend.onrender.com"],  # Update with your allowed domain
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
