@@ -1,61 +1,87 @@
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, HTTPException, Depends
+from pydantic import BaseModel, EmailStr
 from fastapi.middleware.cors import CORSMiddleware
-from pydantic import BaseModel
-from database import cursor, conn
+from passlib.context import CryptContext
+import sqlite3
 
 app = FastAPI()
 
-# CORS Middleware যোগ করা
+# Password hashing configuration
+pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
+
+# CORS Middleware setup
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],  # সব ডোমেইন থেকে অনুরোধ গ্রহণ করবে
+    allow_origins=["http://localhost:8000"],  # Update with your allowed domain
     allow_credentials=True,
-    allow_methods=["*"],  # সব HTTP মেথড (GET, POST, ইত্যাদি) গ্রহণ করবে
-    allow_headers=["*"],  # সব ধরনের HTTP হেডার গ্রহণ করবে
+    allow_methods=["*"],
+    allow_headers=["*"],
 )
 
-# User Input Model
+# User Input Models
 class User(BaseModel):
     username: str
-    email: str
+    email: EmailStr
     password: str
 
-# Transaction Input Model
+
+class LoginRequest(BaseModel):
+    email: EmailStr
+    password: str
+
+
 class Transaction(BaseModel):
     user_id: int
     amount: float
     description: str
 
 
+# Utility functions for password hashing and verification
+def hash_password(password: str) -> str:
+    return pwd_context.hash(password)
+
+
+def verify_password(plain_password: str, hashed_password: str) -> bool:
+    return pwd_context.verify(plain_password, hashed_password)
+
+
+# Database dependency
+def get_db():
+    conn = sqlite3.connect("data.db")
+    conn.row_factory = sqlite3.Row  # For dict-like row access
+    try:
+        yield conn.cursor()
+        conn.commit()
+    finally:
+        conn.close()
+
+
 @app.post("/signup/")
-def signup(user: User):
+def signup(user: User, cursor=Depends(get_db)):
+    hashed_password = hash_password(user.password)
     try:
         cursor.execute(
             "INSERT INTO users (username, email, password) VALUES (?, ?, ?)",
-            (user.username, user.email, user.password),
+            (user.username, user.email, hashed_password),
         )
-        conn.commit()
         return {"message": "User created successfully"}
-    except Exception as e:
-        raise HTTPException(status_code=400, detail="User already exists or invalid data")
+    except sqlite3.IntegrityError:
+        raise HTTPException(status_code=400, detail="Email already exists")
 
 
 @app.post("/login/")
-def login(email: str, password: str):
-    cursor.execute(
-        "SELECT * FROM users WHERE email = ? AND password = ?", (email, password)
-    )
+def login(request: LoginRequest, cursor=Depends(get_db)):
+    cursor.execute("SELECT * FROM users WHERE email = ?", (request.email,))
     user = cursor.fetchone()
-    if user:
-        return {"message": "Login successful", "user_id": user[0]}
+    if user and verify_password(request.password, user["password"]):
+        return {"message": "Login successful", "user_id": user["id"]}
     raise HTTPException(status_code=401, detail="Invalid credentials")
 
 
 @app.post("/transaction/")
-def create_transaction(transaction: Transaction):
+def create_transaction(transaction: Transaction, cursor=Depends(get_db)):
     cursor.execute(
         "INSERT INTO transactions (user_id, amount, description) VALUES (?, ?, ?)",
         (transaction.user_id, transaction.amount, transaction.description),
     )
-    conn.commit()
     return {"message": "Transaction saved successfully"}
